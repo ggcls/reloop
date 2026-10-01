@@ -1,0 +1,38 @@
+{
+  "name": "@ggcls/reloop",
+  "version": "0.1.0",
+  "description": "Small retry primitives for modern JavaScript runtimes.",
+  "license": "MIT",
+  "repository": "ggcls/reloop",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "obuild",
+    "dev": "vitest",
+    "lint": "oxlint . && oxfmt --check .",
+    "lint:fix": "oxlint --fix . && oxfmt .",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm lint && pnpm typecheck && vitest run --coverage",
+    "prepack": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@vitest/coverage-v8": "^5.0.3",
+    "obuild": "^0.4.43",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
+  }
+}
