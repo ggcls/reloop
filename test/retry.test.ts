@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from "vitest";
-import { retry, type RetryOptions } from "../src/index";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { retry, type RetryDelay, type RetryOptions } from "../src/index";
 
 describe("retry", () => {
   test("returns a synchronous value on the first attempt unchanged", async () => {
@@ -107,5 +107,285 @@ describe("retry", () => {
     } finally {
       timer.mockRestore();
     }
+  });
+});
+
+describe("delays and cancellation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const failingTask = () =>
+    vi.fn((attempt: number) => {
+      if (attempt < 3) {
+        throw new Error("failed");
+      }
+      return "done";
+    });
+
+  test("waits the numeric delay between every retry", async () => {
+    const task = failingTask();
+    const result = retry(task, { delay: 100 });
+    const assertion = expect(result).resolves.toBe("done");
+
+    expect(task).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(task).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(task).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(task).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
+    expect(task.mock.calls).toEqual([[1], [2], [3]]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("passes the original error and available context to a delay callback", async () => {
+    const error = new Error("failed");
+    const task = vi.fn((attempt: number) => {
+      if (attempt < 3) {
+        throw error;
+      }
+      return "done";
+    });
+    const strategy: RetryDelay = (_error, context) => context.attempt * 100;
+    const delay = vi.fn(strategy);
+    const result = retry(task, { retries: 3, delay });
+    const assertion = expect(result).resolves.toBe("done");
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(delay).toHaveBeenNthCalledWith(1, error, {
+      attempt: 1,
+      retriesLeft: 3,
+      elapsed: 0,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(delay).toHaveBeenNthCalledWith(2, error, {
+      attempt: 2,
+      retriesLeft: 2,
+      elapsed: 100,
+    });
+    await vi.advanceTimersByTimeAsync(199);
+    expect(task).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertion;
+  });
+
+  test("supports asynchronous delay callbacks", async () => {
+    const task = failingTask();
+    const delay = vi.fn(async () => 100);
+    const assertion = expect(retry(task, { delay })).resolves.toBe("done");
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(delay).toHaveBeenCalledTimes(2);
+    expect(task).toHaveBeenCalledTimes(3);
+  });
+
+  test("does not compute a delay or wait after the final failure", async () => {
+    const error = new Error("failed");
+    const task = vi.fn(() => {
+      throw error;
+    });
+    const delay = vi.fn(() => 100);
+    const assertion = expect(retry(task, { retries: 1, delay })).rejects.toBe(error);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(delay).toHaveBeenCalledTimes(1);
+    expect(task).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each([0, () => 0, async () => 0])(
+    "does not create timers for zero delay %s",
+    async (delay) => {
+      const timer = vi.spyOn(globalThis, "setTimeout");
+      await expect(retry(failingTask(), { delay })).resolves.toBe("done");
+      expect(timer).not.toHaveBeenCalled();
+    },
+  );
+
+  const invalidDelays = [-1, NaN, Infinity, -Infinity, "100", null, true, {}, undefined];
+
+  test.each(invalidDelays.filter((value) => value !== undefined))(
+    "rejects invalid delay option %j before calling the task",
+    async (delay) => {
+      const task = vi.fn(() => "done");
+      await expect(retry(task, { delay } as RetryOptions)).rejects.toThrow(
+        new RangeError("`delay` must be a finite non-negative number"),
+      );
+      expect(task).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  test.each(invalidDelays)("rejects invalid callback delay %j", async (value) => {
+    const task = failingTask();
+    const delay = (async () => value) as RetryDelay;
+    await expect(retry(task, { delay })).rejects.toThrow(
+      new RangeError("`delay` must be a finite non-negative number"),
+    );
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each([false, true])("preserves delay callback errors (async: %s)", async (asynchronous) => {
+    const error = new Error("delay failed");
+    const fail = () => {
+      throw error;
+    };
+    const delay = asynchronous ? async () => fail() : fail;
+    const task = failingTask();
+    await expect(retry(task, { delay })).rejects.toBe(error);
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test.each([new Error("cancelled"), { cancelled: true }, "cancelled"])(
+    "does not start a task with a pre-aborted signal and preserves reason %s",
+    async (reason) => {
+      const controller = new AbortController();
+      controller.abort(reason);
+      const task = vi.fn(() => "done");
+      await expect(retry(task, { signal: controller.signal })).rejects.toBe(reason);
+      expect(task).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  test("removes the listener after a delay resolves with a non-aborted signal", async () => {
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const task = failingTask();
+    const assertion = expect(retry(task, { delay: 100, signal: controller.signal })).resolves.toBe(
+      "done",
+    );
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(remove.mock.calls).toEqual(add.mock.calls.map(([event, listener]) => [event, listener]));
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("abort clears the delay, removes its listener, and prevents another attempt", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const task = failingTask();
+    const assertion = expect(retry(task, { delay: 100, signal: controller.signal })).rejects.toBe(
+      reason,
+    );
+    await vi.advanceTimersByTimeAsync(50);
+    expect(vi.getTimerCount()).toBe(1);
+    controller.abort(reason);
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+    expect(remove).toHaveBeenCalledExactlyOnceWith("abort", add.mock.calls[0]![1]);
+    await vi.runAllTimersAsync();
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  test("observes an abort during timer setup", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const add = controller.signal.addEventListener.bind(controller.signal);
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    vi.spyOn(controller.signal, "addEventListener").mockImplementation((...args) => {
+      controller.abort(reason);
+      add(...args);
+    });
+    const task = failingTask();
+    await expect(retry(task, { delay: 100, signal: controller.signal })).rejects.toBe(reason);
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  test("abort during a delay callback prevents a timer and another attempt", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const task = failingTask();
+    await expect(
+      retry(task, {
+        signal: controller.signal,
+        delay: async () => {
+          controller.abort(reason);
+          return 100;
+        },
+      }),
+    ).rejects.toBe(reason);
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("checks the signal before starting a zero-delay retry", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const task = failingTask();
+    const result = retry(task, { signal: controller.signal, delay: 0 });
+    controller.abort(reason);
+    await expect(result).rejects.toBe(reason);
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  test("abort in a failed task prevents invoking the delay callback", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const delay = vi.fn(() => 100);
+    await expect(
+      retry(
+        () => {
+          controller.abort(reason);
+          throw new Error("failed");
+        },
+        { signal: controller.signal, delay },
+      ),
+    ).rejects.toBe(reason);
+    expect(delay).not.toHaveBeenCalled();
+  });
+
+  test("preserves the final task failure even when that task aborts the signal", async () => {
+    const controller = new AbortController();
+    const error = new Error("failed");
+    await expect(
+      retry(
+        () => {
+          controller.abort();
+          throw error;
+        },
+        { retries: 0, signal: controller.signal },
+      ),
+    ).rejects.toBe(error);
+  });
+
+  test("does not forcibly cancel an active task", async () => {
+    const controller = new AbortController();
+    let complete!: (value: string) => void;
+    const task = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const result = retry(task, { signal: controller.signal });
+    let settled = false;
+    void result.then(() => {
+      settled = true;
+    });
+    controller.abort();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    complete("done");
+    await expect(result).resolves.toBe("done");
+    expect(task).toHaveBeenCalledTimes(1);
   });
 });

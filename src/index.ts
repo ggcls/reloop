@@ -1,3 +1,3 @@
-export type { RetryOptions, RetryTask } from "./types";
+export type { RetryDelay, RetryOptions, RetryTask } from "./types";
 
 export { retry } from "./retry";
