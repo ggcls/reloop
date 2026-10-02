@@ -47,8 +47,35 @@ await retry(() => fetchData(), {
 ```
 
 Delays must be finite non-negative numbers in milliseconds. A zero delay creates
-no timer. The callback receives the failed attempt number, the number of retries
-still available, and elapsed milliseconds. It is not called after the final failure.
+no timer. The callback receives the failed attempt number, retries remaining after reserving
+the upcoming retry, and elapsed milliseconds. With `retries: 3`, `retriesLeft` is
+`2` after attempt 1 fails, then `1` after attempt 2 fails. The callback is not called
+after the final failure.
+
+### Retry decisions and hooks
+
+```ts
+await retry(() => fetchData(), {
+  shouldRetry: (error) => error instanceof Error && error.message === "Temporary failure",
+  delay: (_error, context) => context.attempt * 100,
+  onRetry: (_error, context) => {
+    console.log(`Attempt ${context.attempt} failed; retrying in ${context.delay}ms`);
+  },
+});
+```
+
+After a failure, `retry` checks that retries remain and the signal is not aborted,
+then calls `shouldRetry`, computes and validates the delay, calls `onRetry`, and
+waits before the next attempt. All three callbacks can be synchronous or asynchronous.
+Returning `false` from `shouldRetry` rethrows the original task error and skips the
+delay and `onRetry`. Callback errors propagate unchanged and stop further attempts.
+
+`RetryContext` describes the failed attempt. `shouldRetry` receives `delay: 0`
+because the delay has not been selected yet; `onRetry` receives the selected delay.
+`elapsed` is a monotonic elapsed time in milliseconds, captured once for each
+failure and shared across its callbacks. Hooks are skipped after the final failure.
+An abort observed between callbacks stops the remaining steps; cancellation or a
+hook failure can still prevent an accepted retry from starting.
 
 ### Cancellation
 

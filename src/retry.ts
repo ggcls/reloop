@@ -1,4 +1,4 @@
-import type { RetryOptions, RetryTask } from "./types";
+import type { RetryContext, RetryOptions, RetryTask } from "./types";
 
 /**
  * Retries a task after thrown errors or rejected promises.
@@ -10,20 +10,23 @@ import type { RetryOptions, RetryTask } from "./types";
  * An active task is not forcibly cancelled; pass the signal to its underlying API
  * to cancel that work. A successful active task still returns its value.
  *
+ * Hooks run in order: `shouldRetry`, delay computation, then `onRetry` before waiting.
+ * A rejected retry preserves the task error; callback errors propagate unchanged.
+ *
  * @param task The synchronous or asynchronous work to attempt.
- * @param options Retry limit, delay, and signal. Numeric options are validated first.
+ * @param options Retry limit, delay, hooks, and signal. Numeric options are validated first.
  * @returns The first successful value, unchanged.
  * @throws {RangeError} When `retries` or a delay is invalid.
- * @throws The delay callback error or abort reason unchanged.
- * @throws The final task error unchanged when all attempts fail.
+ * @throws Any callback error or abort reason unchanged.
+ * @throws The task error unchanged when retries are exhausted or `shouldRetry` returns false.
  * @example
  * ```ts
  * const value = await retry(() => fetchData(), { retries: 2 });
  * ```
  */
 export const retry = async <T>(task: RetryTask<T>, options: RetryOptions = {}): Promise<T> => {
-  const { retries = 3, delay = 0, signal } = options;
-  const started = Date.now();
+  const started = performance.now();
+  const { retries = 3, delay = 0, signal, shouldRetry, onRetry } = options;
 
   if (!Number.isInteger(retries) || retries < 0) {
     throw new RangeError("`retries` must be a non-negative integer");
@@ -50,15 +53,26 @@ export const retry = async <T>(task: RetryTask<T>, options: RetryOptions = {}): 
         throw signal.reason;
       }
 
-      const milliseconds =
-        typeof delay === "function"
-          ? await delay(error, {
-              attempt,
-              retriesLeft: retries - attempt + 1,
-              elapsed: Date.now() - started,
-            })
-          : delay;
+      const context: Omit<RetryContext, "delay"> = {
+        attempt,
+        retriesLeft: retries - attempt,
+        elapsed: performance.now() - started,
+      };
+      if (shouldRetry && !(await shouldRetry(error, { ...context, delay: 0 }))) {
+        throw error;
+      }
+      if (signal?.aborted) {
+        throw signal.reason;
+      }
+
+      const milliseconds = typeof delay === "function" ? await delay(error, { ...context }) : delay;
       validateDelay(milliseconds);
+      if (signal?.aborted) {
+        throw signal.reason;
+      }
+      if (onRetry) {
+        await onRetry(error, { ...context, delay: milliseconds });
+      }
       await wait(milliseconds, signal);
       attempt++;
     }
