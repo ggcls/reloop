@@ -50,6 +50,8 @@ export type RetryTask<T> = (attempt: number) => T | PromiseLike<T>;
 
 /**
  * Computes a finite non-negative delay in milliseconds after a failed attempt.
+ * Receives the failure snapshot without a selected delay. Called only when
+ * a retry is accepted; returning zero skips the timer.
  * Receives the task error unchanged. Thrown errors and rejections propagate unchanged.
  */
 export type RetryDelay = (
@@ -78,7 +80,11 @@ export interface RetryContext {
   elapsed: number;
 }
 
-/** Randomization applied to a capped exponential delay. */
+/**
+ * Randomization applied to a capped exponential delay.
+ * `none` keeps it unchanged; `full` samples from zero to that delay;
+ * `equal` samples from half to all of that delay.
+ */
 export type Jitter = "none" | "full" | "equal";
 
 /** Options validated when an exponential backoff strategy is created. */

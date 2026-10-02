@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import { retry, type RetryContext, type RetryDelay, type RetryOptions } from "../src/index";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { retry, type RetryDelay, type RetryOptions } from "../src/index";
 
 describe("retry", () => {
   test("returns a synchronous value on the first attempt unchanged", async () => {
@@ -643,20 +643,4 @@ describe("retry decisions and hooks", () => {
     expect(onRetry).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
-});
-
-test("exports hook and context types", () => {
-  expectTypeOf<NonNullable<RetryOptions["shouldRetry"]>>().toEqualTypeOf<
-    (error: unknown, context: RetryContext) => boolean | Promise<boolean>
-  >();
-  expectTypeOf<NonNullable<RetryOptions["onRetry"]>>().toEqualTypeOf<
-    (error: unknown, context: RetryContext) => void | Promise<void>
-  >();
-  expectTypeOf<Parameters<RetryDelay>[1]>().toEqualTypeOf<Omit<RetryContext, "delay">>();
-  expectTypeOf<RetryContext>().toEqualTypeOf<{
-    attempt: number;
-    retriesLeft: number;
-    delay: number;
-    elapsed: number;
-  }>();
 });

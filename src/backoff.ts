@@ -22,7 +22,7 @@ export const fixedDelay = (delay: number): RetryDelay => {
  *
  * For failed attempt `n` starting at `1`, computes `delay * factor ** (n - 1)`.
  * The result is capped by `maxDelay` before applying jitter with `Math.random()`.
- * Full jitter ranges from zero to the cap; equal jitter ranges from half to all
+ * Full jitter ranges from zero to the capped delay; equal jitter ranges from half to all
  * of the capped delay. No jitter returns the capped delay unchanged.
  *
  * @param options Base delay (100 ms), factor (2), cap (Infinity), and jitter ("none").

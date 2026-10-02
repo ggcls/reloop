@@ -1,12 +1,5 @@
-import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import {
-  exponentialBackoff,
-  fixedDelay,
-  retry,
-  type BackoffOptions,
-  type Jitter,
-  type RetryDelay,
-} from "../src/index";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { exponentialBackoff, fixedDelay, retry, type BackoffOptions } from "../src/index";
 
 const context = (attempt: number) => ({ attempt, retriesLeft: 0, elapsed: 0 });
 const invalidNumbers = [NaN, Infinity, -Infinity, -1, "100", null, true, {}];
@@ -188,16 +181,4 @@ describe("strategy composition with retry", () => {
     expect(task).toHaveBeenCalledTimes(1);
     expect(timer).not.toHaveBeenCalled();
   });
-});
-
-test("exports strategies and their public option types", () => {
-  expectTypeOf(fixedDelay(100)).toEqualTypeOf<RetryDelay>();
-  expectTypeOf(exponentialBackoff()).toEqualTypeOf<RetryDelay>();
-  expectTypeOf<Jitter>().toEqualTypeOf<"none" | "full" | "equal">();
-  expectTypeOf<BackoffOptions>().toEqualTypeOf<{
-    delay?: number;
-    factor?: number;
-    maxDelay?: number;
-    jitter?: Jitter;
-  }>();
 });

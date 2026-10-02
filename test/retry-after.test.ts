@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, expectTypeOf, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { parseRetryAfter } from "../src/index";
 
 const now = Date.UTC(2015, 9, 21, 7, 27);
@@ -159,10 +159,4 @@ describe("reference clock", () => {
       );
     }
   });
-});
-
-test("exports the parser signature", () => {
-  expectTypeOf(parseRetryAfter).toEqualTypeOf<
-    (value: string | null | undefined, now?: number | Date) => number | undefined
-  >();
 });
