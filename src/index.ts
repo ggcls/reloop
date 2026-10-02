@@ -9,3 +9,4 @@ export type {
 
 export { retry } from "./retry";
 export { fixedDelay, exponentialBackoff } from "./backoff";
+export { parseRetryAfter } from "./retry-after";

@@ -126,6 +126,26 @@ Abort stops future attempts and interrupts retry delays with exactly `signal.rea
 An active task is not forcibly cancelled. Pass the same signal to the underlying
 API when that work needs cancellation; a successful active task still returns its value.
 
+### Retry-After
+
+```ts
+import { parseRetryAfter } from "@ggcls/reloop";
+
+parseRetryAfter("120"); // 120000
+parseRetryAfter("Wed, 21 Oct 2015 07:28:00 GMT", Date.UTC(2015, 9, 21, 7, 27)); // 60000
+```
+
+`parseRetryAfter(value, now?)` accepts non-negative integer seconds or an HTTP date,
+including the obsolete RFC 850 and asctime formats. Outer whitespace is ignored.
+Past dates return `0`; malformed headers and seconds exceeding safe millisecond
+precision return `undefined`. Numeric signs, fractions, and exponent notation are
+invalid. HTTP dates are interpreted in GMT.
+
+`now` accepts a timestamp or a `Date` and defaults to one read of `Date.now()`.
+An invalid reference time throws a `RangeError`, including for an absent header.
+The helper is independent of `retry()`; use it inside a custom delay callback
+with a fallback such as `parseRetryAfter(header) ?? 250`.
+
 ## License
 
 [MIT](./LICENSE)
