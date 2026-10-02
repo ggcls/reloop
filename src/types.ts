@@ -77,3 +77,33 @@ export interface RetryContext {
   /** Time elapsed since `retry()` started, in milliseconds, on a monotonic clock. */
   elapsed: number;
 }
+
+/** Randomization applied to a capped exponential delay. */
+export type Jitter = "none" | "full" | "equal";
+
+/** Options validated when an exponential backoff strategy is created. */
+export interface BackoffOptions {
+  /**
+   * Finite non-negative base delay in milliseconds.
+   * @default 100
+   */
+  delay?: number;
+
+  /**
+   * Finite exponential multiplier, greater than or equal to 1.
+   * @default 2
+   */
+  factor?: number;
+
+  /**
+   * Non-negative maximum delay in milliseconds. Infinity means no cap.
+   * @default Infinity
+   */
+  maxDelay?: number;
+
+  /**
+   * Randomization applied after capping the exponential delay.
+   * @default "none"
+   */
+  jitter?: Jitter;
+}

@@ -1,4 +1,5 @@
 import type { RetryContext, RetryOptions, RetryTask } from "./types";
+import { validateDelay } from "./validation";
 
 /**
  * Retries a task after thrown errors or rejected promises.
@@ -76,12 +77,6 @@ export const retry = async <T>(task: RetryTask<T>, options: RetryOptions = {}): 
       await wait(milliseconds, signal);
       attempt++;
     }
-  }
-};
-
-const validateDelay = (delay: unknown): void => {
-  if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) {
-    throw new RangeError("`delay` must be a finite non-negative number");
   }
 };
 

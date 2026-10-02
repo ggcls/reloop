@@ -52,6 +52,39 @@ the upcoming retry, and elapsed milliseconds. With `retries: 3`, `retriesLeft` i
 `2` after attempt 1 fails, then `1` after attempt 2 fails. The callback is not called
 after the final failure.
 
+### Backoff strategies
+
+```ts
+import { fixedDelay, exponentialBackoff } from "@ggcls/reloop";
+
+await retry(() => fetchData(), { delay: fixedDelay(250) });
+
+await retry(() => fetchData(), {
+  delay: exponentialBackoff({
+    delay: 100,
+    factor: 2,
+    maxDelay: 5000,
+    jitter: "full",
+  }),
+});
+```
+
+Both helpers return a `RetryDelay` and validate their options immediately.
+`fixedDelay` always returns the supplied finite non-negative delay.
+`exponentialBackoff` computes `delay * factor ** (attempt - 1)` using the failed
+attempt number, starting at `1`, then applies the cap before jitter.
+
+Defaults are `delay: 100`, `factor: 2`, `maxDelay: Infinity`, and `jitter: "none"`.
+The base delay must be finite and non-negative; the factor must be finite and at
+least `1`. The cap must be non-negative and may be `Infinity`.
+
+- `none`: the capped delay unchanged.
+- `full`: `Math.random() * cappedDelay`.
+- `equal`: `cappedDelay / 2 + Math.random() * (cappedDelay / 2)`.
+
+A zero base always returns zero. Numeric overflow uses a finite `maxDelay`; without
+one, the strategy throws a `RangeError` before jitter or waiting.
+
 ### Retry decisions and hooks
 
 ```ts
